@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: main
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -31,6 +33,44 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Build site
         run: npm run build
+      - name: Verify Pages build output
+        run: |
+          node --input-type=module <<'NODE'
+          import { existsSync, readFileSync, statSync } from 'node:fs';
+          import path from 'node:path';
+
+          const htmlPath = 'dist/index.html';
+          if (!existsSync(htmlPath)) {
+            throw new Error(`Build output is missing ${htmlPath}`);
+          }
+
+          const html = readFileSync(htmlPath, 'utf8');
+          const assets = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)]
+            .map(([, asset]) => asset);
+
+          if (!assets.some((asset) => asset.endsWith('.js'))) {
+            throw new Error('dist/index.html does not reference a JavaScript bundle');
+          }
+          if (!assets.some((asset) => asset.endsWith('.css'))) {
+            throw new Error('dist/index.html does not reference a CSS bundle');
+          }
+
+          for (const asset of assets) {
+            if (!asset.startsWith('/CortunaMidtermProject/assets/')) {
+              throw new Error(`Asset URL is missing the GitHub Pages base path: ${asset}`);
+            }
+
+            const outputPath = path.join(
+              'dist',
+              asset.replace('/CortunaMidtermProject/', ''),
+            );
+            if (!existsSync(outputPath) || !statSync(outputPath).isFile()) {
+              throw new Error(`Referenced build asset does not exist: ${outputPath}`);
+            }
+          }
+
+          console.log(`Verified ${assets.length} production asset references.`);
+          NODE
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
